@@ -1,0 +1,22 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-acme-dns
+spec:
+  acme:
+    # The ACME server URL
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Email address for ACME registration
+    email: stefan.pinter@bearingpoint.com
+    # Name of a secret used to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-acme-dns-account-key
+    solvers:
+    - dns01:
+        acmeDNS:
+          # The acme-dns server URL
+          host: https://auth.acme-dns.io
+          # Reference to the secret containing acme-dns account credentials
+          accountSecretRef:
+            name: acmedns-account
+            key: acmedns.json

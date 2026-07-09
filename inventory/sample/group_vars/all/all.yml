@@ -1,7 +1,5 @@
-
-
-#---
-gateway_api_enabled: true
+---
+gateway_api_enabled: false
 
 
 #cluster_name: beceph-main.local
@@ -15,7 +13,7 @@ gateway_api_enabled: true
 #ignore_assert_errors: false
 #ingress_nginx_enabled: true
 #ingress_nginx_host_network: false
-cert_manager_enabled: true
+cert_manager_enabled: false
 cert_manager_controller_extra_args:
   - "--dns01-recursive-nameservers-only=true"
   - "--dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53"
