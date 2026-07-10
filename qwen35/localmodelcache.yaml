@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LocalModelCache
+metadata:
+  name: qwen3-5-0-8b
+spec:
+  sourceModelUri: "hf://Qwen/Qwen3.5-0.8B"
+  modelSize: 5Gi
+  nodeGroups:
+    - workers

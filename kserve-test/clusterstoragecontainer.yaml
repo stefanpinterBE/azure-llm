@@ -22,3 +22,4 @@ spec:
         cpu: "1"
   supportedUriFormats:
     - prefix: hf://
+  workloadType: localModelDownloadJob

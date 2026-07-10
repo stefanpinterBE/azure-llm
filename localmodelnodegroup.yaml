@@ -1,0 +1,31 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LocalModelNodeGroup
+metadata:
+  name: workers
+spec:
+  storageLimit: 900G
+  persistentVolumeClaimSpec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: 900G
+    storageClassName: local-storage
+    volumeMode: Filesystem
+  persistentVolumeSpec:
+    accessModes:
+      - ReadWriteOnce
+    volumeMode: Filesystem
+    capacity:
+      storage: 900G
+    local:
+      path: /mnt/models
+    storageClassName: local-storage
+    nodeAffinity:
+      required:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kserve/localmodel
+                operator: In
+                values:
+                  - worker

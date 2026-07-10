@@ -1,0 +1,46 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen3coder
+  namespace: kserve-qwen3coder
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  model:
+    name: qwen3coder
+    uri: "hf://unsloth/Qwen3-Coder-Next-GGUF"
+  replicas: 1
+  router:
+    gateway: {}
+    route: {}
+    scheduler: {}
+  template:
+    nodeSelector:
+      kserve/localmodel: worker
+    containers:
+      - name: main
+        image: ghcr.io/ggml-org/llama.cpp:server-cuda
+        command: ["/app/llama-server"]
+        args:
+          - -m
+          - /mnt/models/Qwen3-Coder-Next-Q4_K_M.gguf
+          - --host
+          - 0.0.0.0
+          - --port
+          - "8000"
+          - -ngl
+          - "99"
+        ports:
+          - containerPort: 8000
+        securityContext:
+          runAsNonRoot: false
+          runAsUser: 0
+        resources:
+          limits:
+            cpu: "8"
+            memory: 64Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "4"
+            memory: 32Gi
+            nvidia.com/gpu: "1"

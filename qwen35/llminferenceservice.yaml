@@ -1,0 +1,26 @@
+apiVersion: "serving.kserve.io/v1alpha1"
+kind: "LLMInferenceService"
+metadata:
+  name: "qwen3"
+  namespace: kserve-qwen3
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  model:
+    name: qwen
+    uri: "hf://Qwen/Qwen3.5-0.8B"
+  template:
+    containers:
+      - name: kserve-container
+        image: kserve/huggingfaceserver:v0.18.0-gpu
+        args:
+          - --model_name=qwen
+        resources:
+          limits:
+            cpu: "8"
+            memory: 128Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: "4"
+            memory: 16Gi
+            nvidia.com/gpu: "1"

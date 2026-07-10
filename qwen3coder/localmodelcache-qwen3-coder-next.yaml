@@ -1,0 +1,24 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterStorageContainer
+metadata:
+  name: hf-gguf-q4
+spec:
+  container:
+    name: storage-initializer
+    image: kserve/storage-initializer:latest
+    env:
+      - name: STORAGE_ALLOW_PATTERNS
+        value: "Qwen3-Coder-Next-Q4_K_M.gguf"
+  supportedUriFormats:
+    - prefix: hf://
+  workloadType: localModelDownloadJob
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LocalModelCache
+metadata:
+  name: qwen3-coder-next
+spec:
+  sourceModelUri: "hf://unsloth/Qwen3-Coder-Next-GGUF"
+  modelSize: 50Gi
+  nodeGroups:
+    - workers
