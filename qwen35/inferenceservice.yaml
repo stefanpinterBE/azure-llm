@@ -2,7 +2,7 @@ apiVersion: "serving.kserve.io/v1beta1"
 kind: "InferenceService"
 metadata:
   name: "qwen3"
-  namespace: kserve-test
+  namespace: kserve-qwen3
   annotations:
     serving.kserve.io/deploymentMode: RawDeployment
 spec:
@@ -12,14 +12,14 @@ spec:
         name: huggingface
       args:
         - --model_name=qwen
-      storageUri: "hf://Qwen/Qwen2.5-0.5B-Instruct"
+      storageUri: "hf://Qwen/Qwen3.5-0.8B"
       resources:
         limits:
           cpu: "8"
-          memory: 40Gi
+          memory: 128Gi
           nvidia.com/gpu: "1"
         requests:
-          cpu: "2"
-          memory: 30Gi
+          cpu: "4"
+          memory: 16Gi
           nvidia.com/gpu: "1"
 
