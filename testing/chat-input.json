@@ -1,5 +1,5 @@
 {
-  "model": "qwen3coder",
+  "model": "deepseek",
   "messages": [
     {
       "role": "system",

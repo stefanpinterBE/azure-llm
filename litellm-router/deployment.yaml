@@ -1,0 +1,42 @@
+# litellm deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: kserve-litellm-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+      - name: litellm
+        image: python:3.11-slim
+        ports:
+        - containerPort: 4000
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            set -e
+            pip install --no-cache-dir 'litellm[proxy]'
+            exec litellm --config /app/config.yaml --port 4000 --detailed_debug
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "300m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: litellm-config

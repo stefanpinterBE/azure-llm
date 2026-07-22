@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kserve-litellm-router
+---
+# ConfigMap with litellm configuration for model routing
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: kserve-litellm-router
+data:
+  config.yaml: |
+    model_list:
+      # Qwen3Coder
+      - model_name: qwen3coder
+        litellm_params:
+          model: openai/qwen3coder
+          api_base: http://qwen3coder-kserve-workload-svc.kserve-qwen3coder.svc.cluster.local:8000/v1
+          api_key: dummy
+      - model_name: qwen
+        litellm_params:
+          model: openai/qwen3coder
+          api_base: http://qwen3coder-kserve-workload-svc.kserve-qwen3coder.svc.cluster.local:8000/v1
+          api_key: dummy
+      
+      # DeepSeek
+      - model_name: deepseek
+        litellm_params:
+          model: openai/deepseek
+          api_base: http://deepseek-kserve-workload-svc.kserve-deepseek.svc.cluster.local:8000/v1
+          api_key: dummy
+
+    general_settings:
+      # No master_key = open endpoint, no API key required
+      # Set master_key if you want to require authentication
+      litellm_mode: "PRODUCTION"
+      # Enable detailed logging for debugging
+      log_level: "DEBUG"
+---
+# litellm deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: kserve-litellm-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+      - name: litellm
+        image: python:3.11-slim
+        ports:
+        - containerPort: 4000
+        command: ["/bin/bash"]
+        args:
+          - -c
+          - |
+            set -e
+            pip install --no-cache-dir 'litellm[proxy]'
+            exec litellm --config /app/config.yaml --port 4000 --detailed_debug
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "300m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: litellm-config
+---
+# Service for litellm
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: kserve-litellm-router
+spec:
+  selector:
+    app: litellm
+  ports:
+  - port: 4000
+    targetPort: 4000
+    protocol: TCP
+---
+# HTTPRoute to expose litellm on /v1/
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: v1-inference
+  namespace: kserve-litellm-router
+
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+
+  hostnames:
+  - inference.llm.bearingpoint.com
+
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /v1/
+    backendRefs:
+    - kind: Service
+      name: litellm
+      port: 4000
+      weight: 1

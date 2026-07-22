@@ -47,18 +47,19 @@ and no automation script tying it all together yet.
 - `deepseek-r1-distill/` — same pattern as qwen3coder but for
   `unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF`, namespace `kserve-deepseek`,
   route `deepseek-ui.llm.bearingpoint.com`.
-- `v1-router/` — KServe InferenceGraph configuration for single-entrypoint OpenAI-compatible API:
-  - `inferencegraph.yaml`: Routes `/v1/qwen3coder/...` and `/v1/deepseek/...` to their services.
-  - `httproute-v1.yaml`: Single HTTPRoute for `inference.llm.bearingpoint.com/v1/...`.
-  - Usage: Add new models by adding nodes to the InferenceGraph.
-  - See `v1-router/ADDING_MODELS.md` for instructions.
+- `litellm-router/` — litellm reverse proxy for single OpenAI-compatible `/v1/` entrypoint:
+  - `litellm-config.yaml`: Routes based on model name in request body.
+  - `deployment.yaml`: litellm deployment.
+  - Usage: Add new models by updating `litellm-config.yaml`.
+  - See `litellm-router/ADDING_MODELS.md` for instructions.
 - `kubespray-venv/` — a leftover Python venv used to run **kubespray**
   (cluster bootstrapping tool); gitignored, not part of the app.
 
 ## Key patterns / conventions observed
-- **Unified OpenAI-compatible API endpoint** via KServe InferenceGraph:
-  All models exposed under `https://inference.llm.bearingpoint.com/v1/:model-name/`
-  with path-based routing. Add new models by adding nodes to the InferenceGraph.
+- **Unified OpenAI-compatible API endpoint** via litellm proxy:
+  All models exposed under `https://inference.llm.bearingpoint.com/v1/chat/completions`.
+  Model selection via request body (e.g., `"model": "qwen3coder"`).
+  New models added by updating `litellm-config.yaml`.
 - Each model gets its own directory with: `namespace.yaml`, an
   `LLMInferenceService` (or `InferenceService` for the older PoC), a
   `LocalModelCache` + dedicated `ClusterStorageContainer` (scoped via
@@ -74,9 +75,9 @@ and no automation script tying it all together yet.
   Gateway API resource and per-model `HTTPRoute`s under
   `*.llm.bearingpoint.com`, terminating TLS from the wildcard cert.
 - **Unified endpoint pattern**: All models accessible via
-  `https://inference.llm.bearingpoint.com/v1/:model-name/chat/completions`.
-  Model name specified in request body (e.g., `model": "qwen3coder"`).
-  New models added by extending the InferenceGraph in `v1-router/`.
+  `https://inference.llm.bearingpoint.com/v1/chat/completions`.
+  Model selection via request body (e.g., `"model": "qwen3coder"`).
+  New models added by updating `litellm-config.yaml` in `litellm-router/`.
 - Endpoint path convention seen in testing: `https://inference.llm.bearingpoint.com/<namespace>/<model-name>/v1/chat/completions`.
 
 ## Notable rough edges (early phase)
