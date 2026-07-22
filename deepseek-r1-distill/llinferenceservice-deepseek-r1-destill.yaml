@@ -21,8 +21,6 @@ spec:
   replicas: 1
 
   router:
-    gateway: {}
-    route: {}
     scheduler: {}
 
   template:

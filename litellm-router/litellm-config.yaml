@@ -11,19 +11,19 @@ data:
       - model_name: qwen3coder
         litellm_params:
           model: openai/qwen3coder
-          api_base: http://qwen3coder-kserve-workload-svc.kserve-qwen3coder.svc.cluster.local:8000/v1
+          api_base: http://qwen3coder-epp-service.kserve-qwen3coder.svc.cluster.local:9002/v1
           api_key: dummy
       - model_name: qwen
         litellm_params:
           model: openai/qwen3coder
-          api_base: http://qwen3coder-kserve-workload-svc.kserve-qwen3coder.svc.cluster.local:8000/v1
+          api_base: http://qwen3coder-epp-service.kserve-qwen3coder.svc.cluster.local:9002/v1
           api_key: dummy
       
       # DeepSeek
       - model_name: deepseek
         litellm_params:
           model: openai/deepseek
-          api_base: http://deepseek-kserve-workload-svc.kserve-deepseek.svc.cluster.local:8000/v1
+          api_base: http://deepseek-epp-service.kserve-deepseek.svc.cluster.local:9002/v1
           api_key: dummy
 
     general_settings:

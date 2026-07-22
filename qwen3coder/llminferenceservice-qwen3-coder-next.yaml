@@ -20,8 +20,6 @@ spec:
     uri: "hf://bullpoint/Qwen3-Coder-Next-AWQ-4bit"
   replicas: 1
   router:
-    gateway: {}
-    route: {}
     scheduler: {}
   template:
     nodeSelector:
