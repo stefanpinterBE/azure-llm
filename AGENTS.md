@@ -78,8 +78,62 @@ and no automation script tying it all together yet.
   `LLMInferenceService` pattern used by qwen3coder/deepseek-r1-distill.
   `qwen35`'s `LLMInferenceService` also doesn't set `replicas`/`router`
   like the newer two do.
-  actually contain sensitive credentials (acme-dns account) — currently
-  tracked as a real value in `cert/acmedns-account.yaml`, not templated.
+- Secrets checked into manifests: `cert/acmedns-account.yaml` actually
+  contains a real acme-dns credential value, not a template/placeholder.
+  It's excluded from git via `.gitignore`, but the working copy still has
+  live secrets sitting in a plain YAML file on disk.
 - No Kustomize/Helm — every namespace/model is fully duplicated YAML with
   no shared base.
 - No CI/CD, no automated apply/deploy script.
+
+## Incident: LocalModelCache downloaded every GGUF quantization variant (fixed 2026-07-22)
+**Symptom:** `/dev/sdc` (`/mnt/models`, the `LocalModelNodeGroup` PV) filled to
+100%, even though `hf-gguf-deepseek` / `hf-gguf-q4` set
+`STORAGE_ALLOW_PATTERNS` to only the intended `*Q4_K_M.gguf` file.
+
+**Root cause:** kserve's `ClusterStorageContainer` auto-selection
+(`GetStorageContainerSpec` / `getContainerSpecForStorageUri` in
+`pkg/webhook/admission/pod/storage_initializer_injector.go` and
+`pkg/controller/v1alpha1/localmodelnode/controller.go`) lists all
+`ClusterStorageContainer`s and returns the **first one whose
+`supportedUriFormats` prefix matches the URI** — but the list comes from an
+informer cache backed by a Go map, so iteration order is **not
+deterministic**. Three containers all declared the same generic
+`prefix: hf://` with `workloadType: localModelDownloadJob`:
+`hf-hub` (root, no filtering), `hf-gguf-deepseek`, and `hf-gguf-q4`. On every
+download-job (re)creation, kserve could randomly pick the unfiltered `hf-hub`
+container instead of the model-specific one, causing a full unfiltered
+`snapshot_download` of the entire HF repo (every quant, including huge `BF16`
+/ `F16` masters) — confirmed directly from a live job pod's env
+(`HF_TOKEN` only, no `STORAGE_ALLOW_PATTERNS`) and its logs ("Fetching 11
+files").
+
+**Fix applied:**
+1. Freed disk space: deleted every non-`Q4_K_M.gguf` file/dir under
+   `/mnt/models/models/<hash>/` for both models (reclaimed ~940G).
+2. Scoped `hf-gguf-deepseek` and `hf-gguf-q4`'s `supportedUriFormats.prefix`
+   from the generic `hf://` to their **exact source repo URI**
+   (`hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF` /
+   `hf://unsloth/Qwen3-Coder-Next-GGUF`).
+3. Changed the root `hf-hub` `ClusterStorageContainer`'s `workloadType` from
+   `localModelDownloadJob` to `initContainer` — it currently has no active
+   `localModelDownloadJob` consumer (the `qwen35/` LocalModelCache isn't
+   deployed) and its blanket `hf://` prefix was the source of the collision.
+4. Re-applied to the cluster, deleted the stuck job, verified
+   `LocalModelNode` status is `ModelDownloaded` for both models with only the
+   intended file on disk, and confirmed both `LLMInferenceService`s are still
+   `READY`.
+
+**Rule of thumb for future models:** every `ClusterStorageContainer` with
+`workloadType: localModelDownloadJob` must have a `supportedUriFormats` prefix
+that is unique to its target repo — never reuse the bare `hf://` prefix for
+more than one such container, or selection becomes a race again. If a future
+model wants full-repo caching (no `STORAGE_ALLOW_PATTERNS` filtering), give it
+its own dedicated container scoped to its exact repo URI rather than reviving
+`hf-hub` as a shared `localModelDownloadJob` fallback.
+
+**Still worth addressing:** `kserve-test/clusterstoragecontainer.yaml` defines
+a second, differently-sized `ClusterStorageContainer` also named `hf-hub`,
+which silently overwrites/conflicts with the root one on `kubectl apply`
+(cluster-scoped names collide) — same class of bug, currently latent because
+`kserve-test`'s `InferenceService` isn't deployed.

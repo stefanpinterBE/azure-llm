@@ -20,6 +20,19 @@ spec:
       limits:
         memory: 16Gi
         cpu: "4"
+  # workloadType is intentionally initContainer, not localModelDownloadJob.
+  # kserve selects a ClusterStorageContainer for a given storageUri by
+  # iterating all containers of the matching workloadType and returning the
+  # first prefix match, in non-deterministic (map) order. With a generic
+  # "hf://" prefix and workloadType localModelDownloadJob, this container was
+  # racing with the model-specific hf-gguf-* containers (see qwen3coder/ and
+  # deepseek-r1-distill/) that scope STORAGE_ALLOW_PATTERNS to a single GGUF
+  # file. Whenever this generic container won the race, the whole HF repo
+  # (every quantization variant, 100s of GB) was downloaded unfiltered,
+  # filling /dev/sdc. If a future model needs full-repo local caching via
+  # LocalModelCache, give it its own dedicated ClusterStorageContainer whose
+  # prefix is scoped to that exact repo URI instead of re-adding this
+  # workload type here.
   supportedUriFormats:
     - prefix: hf://
-  workloadType: localModelDownloadJob
+  workloadType: initContainer

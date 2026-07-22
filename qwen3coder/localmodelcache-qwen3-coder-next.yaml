@@ -9,8 +9,15 @@ spec:
     env:
       - name: STORAGE_ALLOW_PATTERNS
         value: "Qwen3-Coder-Next-Q4_K_M.gguf"
+  # NOTE: kserve picks the first ClusterStorageContainer whose prefix matches
+  # a given storageUri, iterating over an internal map with non-deterministic
+  # order. Any two localModelDownloadJob containers whose prefix both match
+  # the same URI (e.g. the generic "hf://" used by the root hf-hub container)
+  # will race, sometimes selecting the unfiltered one and re-downloading every
+  # quantization variant in the repo. Scoping the prefix to this exact repo
+  # keeps it as the only match for this model's sourceModelUri.
   supportedUriFormats:
-    - prefix: hf://
+    - prefix: hf://unsloth/Qwen3-Coder-Next-GGUF
   workloadType: localModelDownloadJob
 ---
 apiVersion: serving.kserve.io/v1alpha1
