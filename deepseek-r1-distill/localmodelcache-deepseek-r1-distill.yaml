@@ -1,0 +1,24 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterStorageContainer
+metadata:
+  name: hf-gguf-deepseek
+spec:
+  container:
+    name: storage-initializer
+    image: kserve/storage-initializer:latest
+    env:
+      - name: STORAGE_ALLOW_PATTERNS
+        value: "DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf"
+  supportedUriFormats:
+    - prefix: hf://
+  workloadType: localModelDownloadJob
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LocalModelCache
+metadata:
+  name: deepseek-coder
+spec:
+  sourceModelUri: "hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF"
+  modelSize: 50Gi
+  nodeGroups:
+    - workers

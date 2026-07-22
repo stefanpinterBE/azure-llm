@@ -1,0 +1,58 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: deepseek
+  namespace: kserve-deepseek
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+
+spec:
+  model:
+    name: deepseek
+    uri: "hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF"
+
+  replicas: 1
+
+  router:
+    gateway: {}
+    route: {}
+    scheduler: {}
+
+  template:
+    nodeSelector:
+      kserve/localmodel: worker
+
+    containers:
+    - name: main
+      image: ghcr.io/ggml-org/llama.cpp:server-cuda
+
+      command:
+      - /app/llama-server
+
+      args:
+      - -m
+      - /mnt/models/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - -ngl
+      - "99"
+      - --metrics
+
+      ports:
+      - containerPort: 8000
+
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+
+      resources:
+        limits:
+          cpu: "8"
+          memory: 64Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "4"
+          memory: 32Gi
+          nvidia.com/gpu: "1"

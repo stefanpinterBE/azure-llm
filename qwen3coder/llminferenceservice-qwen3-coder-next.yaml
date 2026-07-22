@@ -30,6 +30,7 @@ spec:
           - "8000"
           - -ngl
           - "99"
+          - --metrics
         ports:
           - containerPort: 8000
         securityContext:

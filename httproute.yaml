@@ -1,0 +1,22 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: qwen3coder-ui
+  namespace: kserve-qwen3coder
+
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: kserve-ingress-gateway
+    namespace: kserve
+
+  hostnames:
+  - qwen-ui.llm.bearingpoint.com
+
+  rules:
+  - backendRefs:
+    - kind: Service
+      name: qwen3coder-kserve-workload-svc
+      port: 8000
+      weight: 1
