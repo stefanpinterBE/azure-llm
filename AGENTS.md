@@ -209,18 +209,18 @@ etc.) are very unlikely to be supported. Prefer a native
 AWQ/GPTQ/`compressed-tensors`/FP8 checkpoint from HF for such models instead
 of GGUF.
 
-### Known issue: router-scheduler `EndpointPickerConfig` apiVersion drift
+### Incident: router-scheduler `EndpointPickerConfig` apiVersion drift
 
-The cluster's `llmisvc-controller-manager` runs a floating
-`kserve/llmisvc-controller:latest` image (`imagePullPolicy: Always` — not a
-pinned release), which had drifted ahead of the pinned
-`ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1` image referenced by KServe's
-default `kserve-config-llm-scheduler` template. The newer controller
-generates the router-scheduler's `--config-text` using
-`apiVersion: llm-d.ai/v1alpha1`, but `v0.7.1`'s scheme only registers
-`apiVersion: inference.networking.x-k8s.io/v1alpha1` for
-`EndpointPickerConfig` — causing the router-scheduler's `main` container to
-crash-loop with:
+The cluster's `llmisvc-controller-manager` was running the upstream default
+`kserve/llmisvc-controller:latest` image (`imagePullPolicy: Always` — a
+floating tag, not a pinned release). It had silently drifted ahead of the
+pinned `ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1` image referenced by
+KServe's own default `kserve-config-llm-scheduler` template: the drifted
+controller started generating the router-scheduler's `--config-text` (an
+inline `EndpointPickerConfig`) using `apiVersion: llm-d.ai/v1alpha1`, but
+`v0.7.1`'s scheme only registers `apiVersion:
+inference.networking.x-k8s.io/v1alpha1` — crash-looping the
+router-scheduler's `main` container with:
 
 ```
 no kind "EndpointPickerConfig" is registered for version "llm-d.ai/v1alpha1"
@@ -231,11 +231,49 @@ for the AWQ pivot (regenerating its config fresh from the now-drifted
 default); `deepseek`'s router pod avoided it only by chance, having predated
 the controller drift and never having restarted.
 
-**Fix applied to both `LLMInferenceService` manifests:** explicitly set
-`spec.router.scheduler.config.inline` to the older, working
-`EndpointPickerConfig` (same single-profile scheduling: queue-scorer +
-kv-cache-utilization-scorer + prefix-cache-scorer + no-hit-lru-scorer +
-max-score-picker), so both manifests are pinned and no longer depend on the
-controller's mutable default. If `llm-d-inference-scheduler` is ever
-deliberately upgraded past `v0.7.1` to one that supports `llm-d.ai/v1alpha1`,
-this override can be removed (or updated to match).
+**Fix: pin `llmisvc-controller-manager` to a specific stable release
+instead of overriding each `LLMInferenceService`'s scheduler config.**
+The install docs for this project (see top of this file / repo README)
+install llmisvc via:
+```
+kubectl apply -k config/overlays/addons/llmisvc --force-conflicts --server-side
+```
+from a local checkout of `kserve/kserve` (referenced here as `~/kserve`).
+That overlay's image is set by
+`~/kserve/config/llmisvc/llmisvc_manager_image_patch.yaml` — pinned there to
+```yaml
+image: kserve/llmisvc-controller:v0.19.0
+imagePullPolicy: IfNotPresent
+```
+(the latest stable, non-`-rc` release as of 2026-07-22; confirmed via
+`kubectl kustomize config/overlays/addons/llmisvc` that this resolves
+correctly, then re-applied with the exact command above). `v0.19.0` was
+confirmed to generate the older, compatible `apiVersion:
+inference.networking.x-k8s.io/v1alpha1`.
+
+**Caveat hit during the fix — downgrading in place can break existing
+Deployments:** an in-place image change alone isn't enough if a *newer* drifted
+controller had already created the `LLMInferenceService`'s child Deployments —
+their `spec.selector` is immutable, and an older controller version may try to
+reconcile a different selector, failing with `spec.selector: ... field is
+immutable`. The working fix was to delete + recreate both
+`LLMInferenceService`s (`kubectl delete/apply`) once the controller was
+pinned, so their child Deployments regenerate cleanly under the new
+controller version. This also released the per-model `LocalModelCache`
+`PersistentVolume`s (`reclaimPolicy: Retain`) into `Released` state with a
+stale `claimRef`; they had to be manually cleared before the new PVCs of the
+same name could rebind:
+```
+kubectl patch pv <name>-workers-kserve-<ns> -p '{"spec":{"claimRef": null}}'
+```
+No data was lost — the local model cache directories under `/mnt/models`
+were untouched, only the PV/PVC binding needed repairing. Confirmed both
+models still serve real inference after the redeploy.
+
+`spec.router.scheduler.config.inline` overrides are **not** used in either
+`LLMInferenceService` manifest anymore — the pinned controller version alone
+keeps them consistent. If `llmisvc-controller-manager` or
+`llm-d-inference-scheduler` are ever deliberately upgraded, re-check that
+their generated/expected `EndpointPickerConfig` `apiVersion`s still match
+before rolling out, and expect to delete/recreate the `LLMInferenceService`s
+if their child Deployments' `spec.selector` would change.

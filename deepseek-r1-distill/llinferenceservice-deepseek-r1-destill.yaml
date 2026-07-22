@@ -16,39 +16,7 @@ spec:
   router:
     gateway: {}
     route: {}
-    scheduler:
-      # Pin the EndpointPickerConfig apiVersion explicitly. The cluster's
-      # llmisvc-controller-manager runs a floating `:latest` dev build that
-      # has drifted ahead of the pinned `llm-d-inference-scheduler:v0.7.1`
-      # image referenced by KServe's default scheduler template: it now
-      # generates `apiVersion: llm-d.ai/v1alpha1`, which v0.7.1's scheme
-      # doesn't register, crash-looping the router-scheduler's "main"
-      # container ("no kind EndpointPickerConfig is registered for version
-      # llm-d.ai/v1alpha1"). Pinning back to the older, still-supported
-      # apiVersion works around the version skew. See AGENTS.md.
-      config:
-        inline:
-          apiVersion: inference.networking.x-k8s.io/v1alpha1
-          kind: EndpointPickerConfig
-          plugins:
-            - type: single-profile-handler
-            - type: queue-scorer
-            - type: kv-cache-utilization-scorer
-            - type: prefix-cache-scorer
-            - type: no-hit-lru-scorer
-            - type: max-score-picker
-          schedulingProfiles:
-            - name: default
-              plugins:
-                - pluginRef: queue-scorer
-                  weight: 2
-                - pluginRef: kv-cache-utilization-scorer
-                  weight: 2
-                - pluginRef: prefix-cache-scorer
-                  weight: 3
-                - pluginRef: no-hit-lru-scorer
-                  weight: 2
-                - pluginRef: max-score-picker
+    scheduler: {}
 
   template:
     nodeSelector:
