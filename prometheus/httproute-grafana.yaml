@@ -1,0 +1,18 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  parentRefs:
+  - name: kserve-ingress-gateway
+    namespace: kserve
+
+  hostnames:
+  - grafana.llm.bearingpoint.com
+
+  rules:
+  - backendRefs:
+    - name: monitoring-grafana
+      port: 80
+      weight: 1
