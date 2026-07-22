@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: deepseek
+  namespace: kserve-deepseek
+  labels:
+    # Required so the kube-prometheus-stack Prometheus Operator (Helm release
+    # "monitoring") picks this ServiceMonitor up via its serviceMonitorSelector.
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deepseek
+  namespaceSelector:
+    matchNames:
+      - kserve-deepseek
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

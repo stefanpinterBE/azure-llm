@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: qwen3coder
+  namespace: kserve-qwen3coder
+  labels:
+    # Required so the kube-prometheus-stack Prometheus Operator (Helm release
+    # "monitoring") picks this ServiceMonitor up via its serviceMonitorSelector.
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qwen3coder
+  namespaceSelector:
+    matchNames:
+      - kserve-qwen3coder
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
