@@ -1,14 +1,14 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterStorageContainer
 metadata:
-  name: hf-gguf-deepseek
+  name: hf-awq-deepseek
 spec:
   container:
     name: storage-initializer
     image: kserve/storage-initializer:latest
-    env:
-      - name: STORAGE_ALLOW_PATTERNS
-        value: "DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf"
+    # No STORAGE_ALLOW_PATTERNS here: unlike the old GGUF setup, this is a
+    # standard multi-file HF safetensors repo (weights + config + tokenizer),
+    # vLLM needs the whole repo, not a single file.
   # NOTE: kserve picks the first ClusterStorageContainer whose prefix matches
   # a given storageUri, iterating over an internal map with non-deterministic
   # order. Any two localModelDownloadJob containers whose prefix both match
@@ -17,7 +17,7 @@ spec:
   # quantization variant in the repo. Scoping the prefix to this exact repo
   # keeps it as the only match for this model's sourceModelUri.
   supportedUriFormats:
-    - prefix: hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF
+    - prefix: hf://casperhansen/deepseek-r1-distill-qwen-32b-awq
   workloadType: localModelDownloadJob
 ---
 apiVersion: serving.kserve.io/v1alpha1
@@ -25,7 +25,11 @@ kind: LocalModelCache
 metadata:
   name: deepseek-coder
 spec:
-  sourceModelUri: "hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF"
-  modelSize: 50Gi
+  # Switched from unsloth's Q4_K_M GGUF (llama.cpp/vllm-gguf-plugin, slow) to
+  # a native vLLM-compatible AWQ-4bit quantization from casperhansen (author
+  # of AutoAWQ) - loads through vLLM's built-in AWQ quantization path, no
+  # experimental plugin involved. Matches the qwen3coder migration pattern.
+  sourceModelUri: "hf://casperhansen/deepseek-r1-distill-qwen-32b-awq"
+  modelSize: 30Gi
   nodeGroups:
     - workers

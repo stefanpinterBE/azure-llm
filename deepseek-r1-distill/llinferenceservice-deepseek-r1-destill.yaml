@@ -9,7 +9,14 @@ metadata:
 spec:
   model:
     name: deepseek
-    uri: "hf://unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF"
+    # Switched from unsloth's Q4_K_M GGUF (served via vllm-gguf-plugin) to a
+    # native vLLM-compatible AWQ-4bit checkpoint, matching the qwen3coder
+    # pattern. vllm-gguf-plugin is "highly experimental" and its GGUF path
+    # was noticeably slower than vLLM's native AWQ/compressed-tensors
+    # quantization path - no experimental plugin, no pip install at startup,
+    # and no separate --tokenizer needed since this repo ships its own
+    # config/tokenizer alongside the safetensors weights.
+    uri: "hf://casperhansen/deepseek-r1-distill-qwen-32b-awq"
 
   replicas: 1
 
@@ -24,9 +31,6 @@ spec:
 
     containers:
     - name: main
-      # Official vLLM image. No published image bundles vllm-gguf-plugin yet
-      # (it's a brand-new out-of-tree plugin), so we pip install it at
-      # container start rather than baking a custom image.
       image: vllm/vllm-openai:latest
 
       command:
@@ -36,10 +40,8 @@ spec:
       args:
       - |
         set -e
-        pip install --no-cache-dir vllm-gguf-plugin
-        exec vllm serve /mnt/models/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf \
+        exec vllm serve /mnt/models \
           --served-model-name deepseek \
-          --tokenizer deepseek-ai/DeepSeek-R1-Distill-Qwen-32B \
           --host 0.0.0.0 \
           --port 8000 \
           --gpu-memory-utilization 0.9 \
@@ -65,7 +67,7 @@ spec:
           path: /health
           port: 8000
         periodSeconds: 10
-        failureThreshold: 180 # up to 30min: pip install + loading a 32B model
+        failureThreshold: 180 # up to 30min: loading a 32B model
 
       resources:
         limits:

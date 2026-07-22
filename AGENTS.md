@@ -287,3 +287,59 @@ keeps them consistent. If `llmisvc-controller-manager` or
 their generated/expected `EndpointPickerConfig` `apiVersion`s still match
 before rolling out, and expect to delete/recreate the `LLMInferenceService`s
 if their child Deployments' `spec.selector` would change.
+
+## Migration: DeepSeek-R1-Distill-Qwen-32B GGUF+vllm-gguf-plugin → native AWQ-4bit (2026-07-22)
+
+DeepSeek-R1-Distill-Qwen-32B was slow to serve via `vllm-gguf-plugin` (see
+the "llama.cpp → vLLM" section above) — the plugin's GGUF loading/kernel path
+is explicitly experimental and noticeably underperformed vLLM's native
+quantization paths. Migrated to match the qwen3coder pattern: a native
+vLLM-compatible AWQ-4bit checkpoint instead of GGUF, dropping the
+`vllm-gguf-plugin` pip-install-at-startup step entirely.
+
+**Checkpoint used:** `hf://casperhansen/deepseek-r1-distill-qwen-32b-awq`
+(by the AutoAWQ author, ~42.8k downloads, most-used AWQ quant of this model
+on HF as of 2026-07-22). Standard sharded safetensors repo with its own
+`config.json`/tokenizer, so `vllm serve /mnt/models` needs no `--tokenizer`
+override (unlike the old GGUF setup, which needed
+`--tokenizer deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` since GGUF files don't
+carry HF tokenizer files).
+
+**Manifests changed:**
+- `deepseek-r1-distill/llinferenceservice-deepseek-r1-destill.yaml`: model
+  `uri` → the AWQ repo; container args now just `vllm serve /mnt/models ...`
+  (no `pip install vllm-gguf-plugin`, no `--tokenizer`).
+- `deepseek-r1-distill/localmodelcache-deepseek-r1-distill-awq.yaml`
+  (replaces `localmodelcache-deepseek-r1-distill.yaml`): new
+  `ClusterStorageContainer hf-awq-deepseek` scoped to the exact AWQ repo URI
+  (no `STORAGE_ALLOW_PATTERNS` — full safetensors repo needed, not a single
+  file) and `LocalModelCache deepseek-coder` pointed at the new
+  `sourceModelUri`.
+
+**Rollout procedure (sourceModelUri is immutable on LocalModelCache):**
+1. `kubectl delete llminferenceservice deepseek -n kserve-deepseek` and
+   `kubectl delete localmodelcache deepseek-coder` first — changing
+   `spec.sourceModelUri` in place is rejected by the API
+   (`StorageUri is immutable`).
+2. Deleting `LocalModelCache` also cleaned up its `PersistentVolume`s
+   automatically this time (fully removed, not left `Released` — contrast
+   with the earlier `llmisvc-controller-manager` pin incident where PVs were
+   left `Released` and needed a manual `claimRef` patch).
+3. Removed the old `hf-gguf-deepseek` `ClusterStorageContainer` and the stale
+   ~19G `DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf` cache dir under
+   `/mnt/models/models/<hash>/` to reclaim disk space.
+4. Re-applied the new `LocalModelCache`/`ClusterStorageContainer` then the
+   new `LLMInferenceService`; download job pulled the ~18.5G AWQ checkpoint
+   in under 2 minutes, `vllm serve` loaded it in ~9s.
+
+**Verification gotcha:** a chat/completion request sent immediately after
+the pod reports `Running`/ready can return garbage tokens (e.g. repeated
+`"qui qui qui..."`) — this was CUDA graph capture / kernel JIT warmup still
+settling, not a broken checkpoint. Waited ~1-2 minutes after the pod became
+ready and re-tested; got coherent `<think>...</think>` reasoning output as
+expected. Don't conclude an AWQ checkpoint is bad from a single request
+right after startup — retry after warmup before troubleshooting further.
+
+Confirmed working end-to-end via both direct pod curl and the public
+`https://inference.llm.bearingpoint.com/v1/chat/completions` endpoint
+(`"model": "deepseek"`).
