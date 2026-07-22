@@ -137,3 +137,105 @@ a second, differently-sized `ClusterStorageContainer` also named `hf-hub`,
 which silently overwrites/conflicts with the root one on `kubectl apply`
 (cluster-scoped names collide) — same class of bug, currently latent because
 `kserve-test`'s `InferenceService` isn't deployed.
+
+## Migration: llama.cpp → vLLM (both `LLMInferenceService`s)
+
+Both models were originally served via `ghcr.io/ggml-org/llama.cpp:server`
+(GGUF-native, CPU/GPU llama.cpp backend). Moved to vLLM for better
+throughput/batching and a more actively-maintained inference stack. Outcome
+differs per model:
+
+### DeepSeek-R1-Distill-Qwen-32B — vLLM + GGUF plugin (works)
+
+vLLM's own GGUF support is explicitly "highly experimental" upstream
+(https://docs.vllm.ai/en/stable/features/quantization/gguf/) and now requires
+the out-of-tree `vllm-gguf-plugin`
+(https://github.com/vllm-project/vllm-gguf-plugin). Since custom Docker
+images are off the table for this project, the plugin is `pip install`ed at
+container startup (before `vllm serve`) on top of the stock
+`vllm/vllm-openai:latest` image — see
+`deepseek-r1-distill/llinferenceservice-deepseek-r1-destill.yaml`.
+
+DeepSeek-R1-Distill-Qwen-32B is a **dense Qwen2-style architecture**, one of
+the plugin's tested/supported model families, and it works: `vllm serve`
+loads the existing `/mnt/models/.../Q4_K_M.gguf` directly, with `--tokenizer
+deepseek-ai/DeepSeek-R1-Distill-Qwen-32B` supplying the tokenizer/config from
+the (non-GGUF) base HF repo. Confirmed working end-to-end with a real chat
+completion via direct pod curl.
+
+### Qwen3-Coder-Next — GGUF+vLLM doesn't work; switched to native AWQ-4bit
+
+Qwen3-Coder-Next is a **hybrid MoE + Gated-DeltaNet ("linear attention")
+architecture** (`Qwen3NextForCausalLM`, 80B total / 3B active — same family
+as `Qwen/Qwen3-Next-80B-A3B-Instruct`). vLLM natively supports this
+architecture, but `vllm-gguf-plugin`'s tested model list
+(Qwen 2.5, Qwen 3 dense, Phi 3.5, GPT-2, StableLM, Gemma 3, OLMoE) does not
+include any hybrid/MoE-linear-attention architecture, and this was confirmed
+in practice: the plugin correctly resolves the `Qwen3NextForCausalLM`
+architecture from the HF config, but its GGUF weight loader has no tensor
+mapping for `model_type: qwen3_next`, and the pod crash-loops with:
+
+```
+RuntimeError: Unknown gguf model_type: qwen3_next
+```
+
+**Fix:** dropped the GGUF checkpoint for this model entirely and switched to
+`bullpoint/Qwen3-Coder-Next-AWQ-4bit` (~48G, AWQ/`compressed-tensors`
+quantization — natively supported by vLLM, no plugin required, and the
+closest-footprint alternative to the original ~46G GGUF `Q4_K_M`). vLLM
+auto-detects the quantization method from the repo's `config.json`, so no
+`--quantization` flag is needed. See
+`qwen3coder/localmodelcache-qwen3-coder-next-awq.yaml` (points
+`LocalModelCache`/`ClusterStorageContainer hf-awq-qwen3coder` at
+`hf://bullpoint/Qwen3-Coder-Next-AWQ-4bit`, full-repo download — no
+`STORAGE_ALLOW_PATTERNS`, since AWQ checkpoints are sharded safetensors, not
+a single selectable GGUF file) and
+`qwen3coder/llminferenceservice-qwen3-coder-next.yaml` (`vllm serve
+/mnt/models` — the whole cached repo dir — instead of a single `.gguf` file).
+Confirmed working end-to-end with a real chat completion via direct pod
+curl.
+
+Other engine options considered and rejected for Qwen3-Coder-Next before
+landing on the AWQ pivot: `Qwen/Qwen3-Coder-Next-FP8` (official, ~80G, native
+vLLM FP8 — larger footprint, viable fallback if AWQ ever regresses),
+`huggingfaceserver` (would need a full non-GGUF checkpoint anyway, no
+throughput advantage over vLLM), Triton/TensorRT-LLM and SGLang (same
+GGUF-support gap, unrealistic given "no custom images" constraint).
+
+**Rule of thumb:** before committing to a GGUF quantization of an exotic
+architecture for vLLM, check `vllm-gguf-plugin`'s supported/tested model list
+first — hybrid/MoE-linear-attention architectures (Qwen3-Next family, Jamba,
+etc.) are very unlikely to be supported. Prefer a native
+AWQ/GPTQ/`compressed-tensors`/FP8 checkpoint from HF for such models instead
+of GGUF.
+
+### Known issue: router-scheduler `EndpointPickerConfig` apiVersion drift
+
+The cluster's `llmisvc-controller-manager` runs a floating
+`kserve/llmisvc-controller:latest` image (`imagePullPolicy: Always` — not a
+pinned release), which had drifted ahead of the pinned
+`ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1` image referenced by KServe's
+default `kserve-config-llm-scheduler` template. The newer controller
+generates the router-scheduler's `--config-text` using
+`apiVersion: llm-d.ai/v1alpha1`, but `v0.7.1`'s scheme only registers
+`apiVersion: inference.networking.x-k8s.io/v1alpha1` for
+`EndpointPickerConfig` — causing the router-scheduler's `main` container to
+crash-loop with:
+
+```
+no kind "EndpointPickerConfig" is registered for version "llm-d.ai/v1alpha1"
+```
+
+This surfaced when qwen3coder's `LLMInferenceService` was deleted/recreated
+for the AWQ pivot (regenerating its config fresh from the now-drifted
+default); `deepseek`'s router pod avoided it only by chance, having predated
+the controller drift and never having restarted.
+
+**Fix applied to both `LLMInferenceService` manifests:** explicitly set
+`spec.router.scheduler.config.inline` to the older, working
+`EndpointPickerConfig` (same single-profile scheduling: queue-scorer +
+kv-cache-utilization-scorer + prefix-cache-scorer + no-hit-lru-scorer +
+max-score-picker), so both manifests are pinned and no longer depend on the
+controller's mutable default. If `llm-d-inference-scheduler` is ever
+deliberately upgraded past `v0.7.1` to one that supports `llm-d.ai/v1alpha1`,
+this override can be removed (or updated to match).

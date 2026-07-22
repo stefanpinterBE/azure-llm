@@ -8,40 +8,102 @@ metadata:
 spec:
   model:
     name: qwen3coder
-    uri: "hf://unsloth/Qwen3-Coder-Next-GGUF"
+    # Switched from unsloth's Q4_K_M GGUF to a native vLLM-compatible
+    # AWQ-4bit checkpoint. Qwen3-Coder-Next is a hybrid MoE + Gated-DeltaNet
+    # ("linear attention") architecture (same family as Qwen3-Next-80B-A3B);
+    # vllm-gguf-plugin does not implement GGUF tensor mapping for it
+    # (confirmed: "Unknown gguf model_type: qwen3_next" at runtime), so GGUF
+    # via vLLM isn't viable today - see AGENTS.md for the full story.
+    # AWQ/compressed-tensors quantization is natively supported by vLLM (no
+    # plugin), and this repo's footprint (~48G) is close to the old GGUF's
+    # (~46G).
+    uri: "hf://bullpoint/Qwen3-Coder-Next-AWQ-4bit"
   replicas: 1
   router:
     gateway: {}
     route: {}
-    scheduler: {}
+    scheduler:
+      # Pin the EndpointPickerConfig apiVersion explicitly. The cluster's
+      # llmisvc-controller-manager runs a floating `:latest` dev build that
+      # has drifted ahead of the pinned `llm-d-inference-scheduler:v0.7.1`
+      # image referenced by KServe's default scheduler template: it now
+      # generates `apiVersion: llm-d.ai/v1alpha1`, which v0.7.1's scheme
+      # doesn't register, crash-looping the router-scheduler's "main"
+      # container ("no kind EndpointPickerConfig is registered for version
+      # llm-d.ai/v1alpha1"). Pinning back to the older, still-supported
+      # apiVersion works around the version skew. See AGENTS.md.
+      config:
+        inline:
+          apiVersion: inference.networking.x-k8s.io/v1alpha1
+          kind: EndpointPickerConfig
+          plugins:
+            - type: single-profile-handler
+            - type: queue-scorer
+            - type: kv-cache-utilization-scorer
+            - type: prefix-cache-scorer
+            - type: no-hit-lru-scorer
+            - type: max-score-picker
+          schedulingProfiles:
+            - name: default
+              plugins:
+                - pluginRef: queue-scorer
+                  weight: 2
+                - pluginRef: kv-cache-utilization-scorer
+                  weight: 2
+                - pluginRef: prefix-cache-scorer
+                  weight: 3
+                - pluginRef: no-hit-lru-scorer
+                  weight: 2
+                - pluginRef: max-score-picker
   template:
     nodeSelector:
       kserve/localmodel: worker
     containers:
       - name: main
-        image: ghcr.io/ggml-org/llama.cpp:server-cuda
-        command: ["/app/llama-server"]
+        image: vllm/vllm-openai:latest
+
+        command:
+          - /bin/sh
+          - -c
+
         args:
-          - -m
-          - /mnt/models/Qwen3-Coder-Next-Q4_K_M.gguf
-          - --host
-          - 0.0.0.0
-          - --port
-          - "8000"
-          - -ngl
-          - "99"
-          - --metrics
+          - |
+            set -e
+            exec vllm serve /mnt/models \
+              --served-model-name qwen3coder \
+              --host 0.0.0.0 \
+              --port 8000 \
+              --gpu-memory-utilization 0.9 \
+              --max-model-len 32768
+
+        env:
+          - name: HF_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: hf-secret
+                key: HF_TOKEN
+                optional: true
+
         ports:
           - containerPort: 8000
+
         securityContext:
           runAsNonRoot: false
           runAsUser: 0
+
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 180 # up to 30min: loading an 80B MoE model
+
         resources:
           limits:
             cpu: "8"
-            memory: 64Gi
+            memory: 96Gi
             nvidia.com/gpu: "1"
           requests:
             cpu: "4"
-            memory: 32Gi
+            memory: 48Gi
             nvidia.com/gpu: "1"

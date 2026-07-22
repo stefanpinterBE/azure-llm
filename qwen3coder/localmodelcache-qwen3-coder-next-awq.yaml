@@ -1,0 +1,35 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterStorageContainer
+metadata:
+  name: hf-awq-qwen3coder
+spec:
+  container:
+    name: storage-initializer
+    image: kserve/storage-initializer:latest
+    # No STORAGE_ALLOW_PATTERNS here: unlike the old GGUF setup, this is a
+    # standard multi-file HF safetensors repo (weights + config + tokenizer),
+    # vLLM needs the whole repo, not a single file.
+  # NOTE: kserve picks the first ClusterStorageContainer whose prefix matches
+  # a given storageUri, iterating over an internal map with non-deterministic
+  # order. Any two localModelDownloadJob containers whose prefix both match
+  # the same URI (e.g. the generic "hf://" used by the root hf-hub container)
+  # will race. Scoping the prefix to this exact repo keeps it as the only
+  # match for this model's sourceModelUri.
+  supportedUriFormats:
+    - prefix: hf://bullpoint/Qwen3-Coder-Next-AWQ-4bit
+  workloadType: localModelDownloadJob
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LocalModelCache
+metadata:
+  name: qwen3-coder-next
+spec:
+  # Switched from unsloth's Q4_K_M GGUF (llama.cpp-only; vllm-gguf-plugin
+  # doesn't support this model's hybrid qwen3_next architecture, see
+  # AGENTS.md) to a native vLLM-compatible AWQ-4bit quantization, ~similar
+  # footprint (48G vs 46G) but loads through vLLM's built-in AWQ/
+  # compressed-tensors quantization path - no experimental plugin involved.
+  sourceModelUri: "hf://bullpoint/Qwen3-Coder-Next-AWQ-4bit"
+  modelSize: 50Gi
+  nodeGroups:
+    - workers
