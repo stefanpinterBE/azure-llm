@@ -1,0 +1,22 @@
+# Cluster-internal Gateway used for the litellm -> EPP -> vLLM hop.
+# HTTP only (no TLS): TLS is terminated once at the public
+# kserve-ingress-gateway; internal traffic between litellm and the endpoint
+# pickers stays plaintext inside the cluster.
+#
+# KServe's LLMInferenceService router (spec.router.gateway.refs) attaches its
+# generated HTTPRoute + InferencePool backendRef to this Gateway, so envoy
+# consults each model's endpoint picker before forwarding to a vLLM pod.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kserve-internal-gateway
+  namespace: kserve
+spec:
+  gatewayClassName: envoy-internal
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -1,0 +1,28 @@
+# Postgres for LiteLLM: static local-storage PV (/dev/sdd) + CloudNativePG
+# Cluster. Git-sourced: syncs once ArgoCD has access to the repo.
+#
+# NOTE: the CNPG Cluster CR requires the CloudNativePG operator CRDs, so the
+# `cloudnative-pg` Application must be Healthy first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stefanpinterBE/azure-llm.git
+    targetRevision: main
+    path: postgres
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

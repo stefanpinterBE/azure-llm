@@ -1,0 +1,28 @@
+# qwen3coder LLMInferenceService (+ namespace, LocalModelCache, ServiceMonitor,
+# public UI route). Git-sourced. The LLMISVC's spec.router attaches its
+# generated route to the internal gateway (envoy -> EPP -> vLLM).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: qwen3coder
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stefanpinterBE/azure-llm.git
+    targetRevision: main
+    path: qwen3coder
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve-qwen3coder
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

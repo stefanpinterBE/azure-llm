@@ -1,0 +1,15 @@
+# EnvoyProxy parametrising the `envoy-internal` GatewayClass so its data-plane
+# Service is ClusterIP (NOT a LoadBalancer). This keeps the internal Gateway
+# reachable only from inside the cluster — it is the hop litellm uses to reach
+# each model's endpoint picker (EPP), and must never be publicly exposed.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-internal
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: ClusterIP

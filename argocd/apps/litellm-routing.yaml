@@ -1,0 +1,30 @@
+# LiteLLM supporting manifests: namespace + public HTTPRoute
+# (inference.llm.bearingpoint.com -> litellm service). Git-sourced.
+# secrets.example.yaml is a template and is excluded (real Secrets are created
+# out-of-band and gitignored).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-routing
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stefanpinterBE/azure-llm.git
+    targetRevision: main
+    path: litellm
+    directory:
+      recurse: false
+      exclude: "secrets.example.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

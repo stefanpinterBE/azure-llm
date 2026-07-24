@@ -1,0 +1,32 @@
+# App-of-apps: ArgoCD watches argocd/apps/ in the repo and manages every child
+# Application declaratively. Apply this once (kubectl apply -f argocd/root-app.yaml)
+# after ArgoCD has repo access; it then reconciles all the apps below:
+#   - cloudnative-pg   (Helm, public repo)        operator
+#   - litellm          (OCI Helm)                 proxy
+#   - postgres         (git)                      PV + CNPG Cluster
+#   - internal-gateway (git)                      ClusterIP-only envoy gateway
+#   - litellm-routing  (git)                      namespace + public HTTPRoute
+#   - qwen3coder       (git)                      LLMInferenceService
+#   - deepseek         (git)                      LLMInferenceService
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stefanpinterBE/azure-llm.git
+    targetRevision: main
+    path: argocd/apps
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

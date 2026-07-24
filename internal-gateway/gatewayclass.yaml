@@ -1,0 +1,14 @@
+# Dedicated GatewayClass for cluster-internal traffic. Same Envoy Gateway
+# controller as the public `envoy` class, but parametrised by the EnvoyProxy
+# above so Gateways of this class get a ClusterIP data-plane Service.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-internal
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: envoy-internal
+    namespace: envoy-gateway-system

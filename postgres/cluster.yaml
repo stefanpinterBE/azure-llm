@@ -1,0 +1,25 @@
+# CloudNativePG cluster backing LiteLLM's model/keys/spend store.
+#
+# Single instance (single-node k8s cluster, no HA replica requested). Lives in
+# the `litellm` namespace so the generated app credentials Secret
+# (litellm-pg-app: username/password/dbname/uri) is readable by the LiteLLM
+# release in the same namespace.
+#
+# Storage: the static local-storage PV `litellm-pg-pv` on /dev/sdd (/mnt/pgdata).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: litellm-pg
+  namespace: litellm
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:17
+
+  bootstrap:
+    initdb:
+      database: litellm
+      owner: litellm
+
+  storage:
+    storageClass: local-storage
+    size: 8Gi

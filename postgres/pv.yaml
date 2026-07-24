@@ -1,0 +1,29 @@
+# Static local-storage PersistentVolume backing the CloudNativePG cluster.
+#
+# Single-node cluster: /dev/sdd is formatted ext4 and mounted at /mnt/pgdata on
+# the node azvmspcai01 (see PLAN-litellm-argocd.md for the one-time host step).
+# The `local-storage` StorageClass is no-provisioner + WaitForFirstConsumer, so
+# this PV must be created statically; CNPG's PVC (litellm-pg-1) binds to it once
+# the Postgres pod is scheduled onto the matching node.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: litellm-pg-pv
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  volumeMode: Filesystem
+  local:
+    path: /mnt/pgdata
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - azvmspcai01

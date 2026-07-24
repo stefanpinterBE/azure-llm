@@ -1,0 +1,102 @@
+# LiteLLM proxy (monolithic litellm-helm chart, OCI — syncs without git repo
+# access). Single OpenAI-compatible entrypoint; models are body-selected and,
+# with STORE_MODEL_IN_DB, managed from the Admin UI / DB.
+#
+# Backends are reached through the cluster-internal envoy Gateway, which invokes
+# each model's KServe endpoint picker (EPP) before forwarding to a vLLM pod:
+#   litellm -> envoy(internal) -> InferencePool/EPP -> vLLM
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/berriai
+    chart: litellm-helm
+    targetRevision: 1.93.0
+    helm:
+      valuesObject:
+        replicaCount: 1
+        image:
+          repository: ghcr.io/berriai/litellm-database
+          # tag defaults to the chart appVersion (matching litellm release)
+          tag: ""
+          pullPolicy: IfNotPresent
+
+        # Master key (admin auth) from an existing Secret; salt key + extra env
+        # from litellm-env. Both Secrets are created out-of-band (gitignored).
+        masterkeySecretName: litellm-masterkey
+        masterkeySecretKey: masterkey
+        environmentSecrets:
+          - litellm-env
+
+        # Manage models from the DB/Admin UI instead of static config.
+        envVars:
+          STORE_MODEL_IN_DB: "True"
+          # Trust the ingress proxy's X-Forwarded-Proto so the UI does not
+          # downgrade https -> http on redirects (e.g. /ui -> /ui/).
+          FORWARDED_ALLOW_IPS: "*"
+
+        # External Postgres = the CloudNativePG cluster in this namespace.
+        db:
+          useExisting: true
+          deployStandalone: false
+          endpoint: litellm-pg-rw.litellm.svc.cluster.local
+          database: litellm
+          secret:
+            name: litellm-pg-app
+            usernameKey: username
+            passwordKey: password
+
+        redis:
+          enabled: false
+
+        service:
+          type: ClusterIP
+          port: 4000
+
+        # Prisma migrations run as an ArgoCD PreSync hook.
+        migrationJob:
+          enabled: true
+          hooks:
+            argocd:
+              enabled: true
+            helm:
+              enabled: false
+
+        # Seed model_list. api_base points at the internal envoy Gateway using
+        # KServe's generated path convention /<namespace>/<model>/v1 (the route
+        # rewrites it to /v1 and routes via the InferencePool/EPP).
+        proxy_config:
+          model_list:
+            - model_name: qwen3coder
+              litellm_params:
+                model: openai/qwen3coder
+                api_base: http://envoy-kserve-kserve-internal-gateway-172612ac.envoy-gateway-system.svc.cluster.local/kserve-qwen3coder/qwen3coder/v1
+                api_key: dummy
+            - model_name: qwen
+              litellm_params:
+                model: openai/qwen3coder
+                api_base: http://envoy-kserve-kserve-internal-gateway-172612ac.envoy-gateway-system.svc.cluster.local/kserve-qwen3coder/qwen3coder/v1
+                api_key: dummy
+            - model_name: deepseek
+              litellm_params:
+                model: openai/deepseek
+                api_base: http://envoy-kserve-kserve-internal-gateway-172612ac.envoy-gateway-system.svc.cluster.local/kserve-deepseek/deepseek/v1
+                api_key: dummy
+          general_settings:
+            master_key: os.environ/PROXY_MASTER_KEY
+            store_model_in_db: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

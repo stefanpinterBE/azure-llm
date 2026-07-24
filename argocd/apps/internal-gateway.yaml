@@ -1,0 +1,24 @@
+# Cluster-internal, ClusterIP-only envoy Gateway (GatewayClass + EnvoyProxy +
+# Gateway). Git-sourced: syncs once ArgoCD has access to stefanpinterBE/azure-llm.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: internal-gateway
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stefanpinterBE/azure-llm.git
+    targetRevision: main
+    path: internal-gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

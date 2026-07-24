@@ -22,6 +22,16 @@ spec:
 
   router:
     scheduler: {}
+    # kserve-native routing: KServe generates the HTTPRoute + InferencePool
+    # backendRef and attaches it to the cluster-internal Gateway, so envoy
+    # consults this model's endpoint picker (EPP) before forwarding to the
+    # vLLM pod. litellm reaches this model through that internal Gateway.
+    gateway:
+      refs:
+        - name: kserve-internal-gateway
+          namespace: kserve
+    route:
+      http: {}
 
   template:
     nodeSelector:
